@@ -1,0 +1,173 @@
+import random
+import streamlit as st
+
+# Cấu hình trang web Streamlit
+st.set_page_config(
+    page_title="Game Nối Thú Cổ Điển", page_icon="🐶", layout="wide"
+)
+
+# Danh sách 10 biểu tượng con vật
+EMOJIS = ["🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯"]
+
+# Kích thước bàn chơi (Số hàng x Số cột)
+ROWS, COLS = 6, 8
+
+
+# --- HÀM KIỂM TRA ĐƯỜNG NỐI (BFS ALGORITHM) ---
+def isValidPath(board, start, end):
+  """Kiểm tra 2 ô có thể nối với nhau với tối đa 2 lần gấp khúc (3 đoạn thẳng)"""
+  if start == end:
+    return False
+
+  r1, c1 = start
+  r2, c2 = end
+
+  # 2 ô phải cùng loại con vật
+  if board[r1][c1] != board[r2][c2] or board[r1][c1] == "":
+    return False
+
+  # Thuật toán BFS tìm đường
+  # Queue lưu: (hàng, cột, hướng_hiện_tại, số_lần_đổi_hướng)
+  # Hướng: 0: lên, 1: xuống, 2: trái, 3: phải
+  queue = [(r1, c1, -1, 0)]
+  visited = {}  # Lưu số lần gấp khúc nhỏ nhất tới mỗi vị trí
+
+  directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+
+  while queue:
+    curr_r, curr_c, curr_dir, turns = queue.pop(0)
+
+    if (curr_r, curr_c) == (r2, c2):
+      return True
+
+    for d_idx, (dr, dc) in enumerate(directions):
+      nr, nc = curr_r + dr, curr_c + dc
+      new_turns = turns if (curr_dir == d_idx or curr_dir == -1) else turns + 1
+
+      # Đường đi không vượt quá 2 lần gấp khúc (3 đoạn)
+      if new_turns > 2:
+        continue
+
+      # Giới hạn biên (bao gồm cả lớp viền trống bên ngoài)
+      if -1 <= nr <= ROWS and -1 <= nc <= COLS:
+        # Kiểm tra ô trống hoặc là ô đích
+        is_empty = False
+        if 0 <= nr < ROWS and 0 <= nc < COLS:
+          is_empty = board[nr][nc] == ""
+        else:
+          is_empty = True  # Các ô bên ngoài viền xem như ô trống
+
+        if (nr, nc) == (r2, c2) or is_empty:
+          state_key = (nr, nc, d_idx)
+          if state_key not in visited or visited[state_key] > new_turns:
+            visited[state_key] = new_turns
+            queue.append((nr, nc, d_idx, new_turns))
+
+  return False
+
+
+# --- KHỞI TẠO GAME ---
+def init_game():
+  num_pairs = (ROWS * COLS) // 2
+  cards = []
+  for i in range(num_pairs):
+    cards.extend([EMOJIS[i % len(EMOJIS)], EMOJIS[i % len(EMOJIS)]])
+
+  random.shuffle(cards)
+
+  board = []
+  for r in range(ROWS):
+    row = []
+    for c in range(COLS):
+      row.append(cards.pop())
+    board.append(row)
+
+  st.session_state.board = board
+  st.session_state.selected = None
+  st.session_state.score = 0
+  st.session_state.game_over = False
+
+
+# Quản lý trạng thái bằng session_state
+if "board" not in st.session_state:
+  init_game()
+
+
+# --- XỬ LÝ CLICK Ô ---
+def handle_click(r, c):
+  if st.session_state.board[r][c] == "":
+    return
+
+  if st.session_state.selected is None:
+    # Chọn ô thứ nhất
+    st.session_state.selected = (r, c)
+  else:
+    # Chọn ô thứ hai
+    r1, c1 = st.session_state.selected
+    r2, c2 = r, c
+
+    if (r1, c1) == (r2, c2):
+      # Bỏ chọn nếu nhấn lại ô cũ
+      st.session_state.selected = None
+    else:
+      # Kiểm tra kết nối
+      if isValidPath(st.session_state.board, (r1, c1), (r2, c2)):
+        # Nối thành công -> Xóa 2 ô
+        st.session_state.board[r1][c1] = ""
+        st.session_state.board[r2][c2] = ""
+        st.session_state.score += 10
+        st.session_state.selected = None
+
+        # Kiểm tra thắng game
+        all_empty = all(
+            cell == "" for row in st.session_state.board for cell in row
+        )
+        if all_empty:
+          st.session_state.game_over = True
+      else:
+        # Nối thất bại -> Chọn ô mới
+        st.session_state.selected = (r, c)
+
+
+# --- GIAO DIỆN HIỂN THỊ (UI) ---
+st.title("🐶 Trò Chơi Nối Thú Cổ Điển (Onet Connect)")
+st.write(
+    "**Luật chơi:** Chọn 2 con vật giống nhau có thể nối với nhau bằng tối đa"
+    " 3 đoạn thẳng!"
+)
+
+col_score, col_reset = st.columns([3, 1])
+with col_score:
+  st.subheader(f"🏆 Điểm số: {st.session_state.score}")
+with col_reset:
+  if st.button("🔄 Chơi lại", use_container_width=True):
+    init_game()
+    st.rerun()
+
+st.divider()
+
+if st.session_state.game_over:
+  st.balloons()
+  st.success("🎉 CHÚC MỪNG! Bạn đã xóa hết tất cả các con vật!")
+else:
+  # Vẽ bàn chơi
+  for r in range(ROWS):
+    cols = st.columns(COLS)
+    for c in range(COLS):
+      val = st.session_state.board[r][c]
+      is_selected = st.session_state.selected == (r, c)
+
+      # Định dạng hiển thị nút
+      label = val if val != "" else " "
+      btn_type = "primary" if is_selected else "secondary"
+
+      with cols[c]:
+        st.button(
+            label,
+            key=f"btn_{r}_{c}",
+            type=btn_type,
+            disabled=(val == ""),
+            on_click=handle_click,
+            args=(r, c),
+            use_container_width=True,
+        )
